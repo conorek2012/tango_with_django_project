@@ -10,22 +10,35 @@ from django.http import HttpResponseRedirect, HttpResponse
 from django.core.urlresolvers import reverse
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import logout
+from datetime import datetime
 
 def index(request):
 
     category_list = Category.objects.order_by('-likes')[:5]
     page_list = Page.objects.order_by('-views')[:5]
     context_dict = {'categories': category_list, 'pages': page_list}
-# Render the response and send it back!
-    return render(request, 'rango/index.html', context_dict)
+
+    #Call the helper function to handle the cookies
+    visitor_cookie_handler(request, 'visits', 'last_visits')
+    context_dict['visits'] = request.session['visits']
+
+    response = render(request, 'rango/index.html', context_dict)
+    return response
+
 
 def about(request):
-    # prints out whether the method is a GET or a POST
+    context_dict = {}
+    visitor_cookie_handler(request, 'visits-about', 'last_visits-about')
+    context_dict['visits'] = request.session['visits-about']
+
+        # prints out whether the method is a GET or a POST
     print(request.method)
     # prints out the user name, if no one is logged in it prints `AnonymousUser`
     print(request.user)
-    return render(request, 'rango/about.html', {})
+    return render(request, 'rango/about.html', context_dict)
     # return HttpResponse('Rango says here is the about page.')
+
+
 
 def show_category(request, category_name_slug):
     context_dict = {}
@@ -41,6 +54,7 @@ def show_category(request, category_name_slug):
 
     return render(request, 'rango/category.html', context_dict)
 
+@login_required
 def add_category(request):
     form = CategoryForm()
 
@@ -146,6 +160,7 @@ def register_view(request):
 
 
 def user_login(request):
+    context_dict = {}
     # If the request is a HTTP POST, try to pull out the relevant information.
     if request.method == 'POST':
         # Gather the username and password provided by the user.
@@ -175,18 +190,18 @@ def user_login(request):
                 return HttpResponse("Your Rango account is disabled.")
         else:
             # Bad login details were provided. So we can't log the user in.
-            print("Invalid login details: {0}, {1}".format(username, password))
-            return HttpResponse("Invalid login details supplied.")
-            # The request is not a HTTP POST, so display the login form.
+            context_dict['errors'] = "Invalid login details: {0}, {1}".format(username, password)
+            return render(request, 'rango/login.html', context_dict)
+                        # The request is not a HTTP POST, so display the login form.
             # This scenario would most likely be a HTTP GET.
     else:
         # No context variables to pass to the template system, hence the
         # blank dictionary object...
-        return render(request, 'rango/login.html', {})
+        return render(request, 'rango/login.html', context_dict)
 
 @login_required
 def restricted(request):
-    return HttpResponse("Since you're logged in, you can see this text!")
+    return render(request, 'rango/restricted.html')
 
 # Use the login_required() decorator to ensure only those logged in can
 # access the view.
@@ -196,3 +211,31 @@ def user_logout(request):
     logout(request)
     # Take the user back to the homepage.
     return HttpResponseRedirect(reverse('index'))
+
+# A helper method
+def get_server_side_cookie(request, cookie, default_val=None):
+    val = request.session.get(cookie)
+    if not val:
+        val = default_val
+    return val
+
+# Updated the function definition
+def visitor_cookie_handler(request, visits_cookie_name, last_visit_cookie_name):
+    visits = int(get_server_side_cookie(request, visits_cookie_name, '1'))
+    last_visit_cookie = get_server_side_cookie(request,
+                                                last_visit_cookie_name,
+                                                str(datetime.now()))
+    last_visit_time = datetime.strptime(last_visit_cookie[:-7],
+                                        '%Y-%m-%d %H:%M:%S')
+
+    # If it's been more than a day since the last visit...
+    if (datetime.now() - last_visit_time).days > 0:
+        visits = visits + 1
+        #update the last visit cookie now that we have updated the count
+        request.session[last_visit_cookie_name] = str(datetime.now())
+    else:
+        # set the last visit cookie
+        request.session[last_visit_cookie_name] = last_visit_cookie
+
+    # Update/set the visits cookie
+    request.session[visits_cookie_name] = visits
